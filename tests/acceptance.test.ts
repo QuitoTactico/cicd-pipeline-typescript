@@ -1,46 +1,45 @@
 import { Builder, By, WebDriver, until } from 'selenium-webdriver';
 import chrome from 'selenium-webdriver/chrome';
-import app from '../src/app';
-import { Server } from 'http';
+// Quita: import app from '../src/app';
+// Quita: import { Server } from 'http';
 const { Select } = require('selenium-webdriver/lib/select');
 
-const BASE_URL = process.env.APP_BASE_URL || 'http://localhost:3001';
-const TEST_PORT = 3001;
-
+const BASE_URL = process.env.APP_BASE_URL || 'http://localhost:3000';
+jest.setTimeout(30000); // 30 segundos para todos los tests y hooks
 describe('Calculator Acceptance Tests', () => {
   let driver: WebDriver;
-  let server: Server;
 
   beforeAll(async () => {
-    // Configurar opciones de Chrome
+
     const chromeOptions = new chrome.Options();
-    chromeOptions.addArguments('--headless'); // Ejecutar sin interfaz gráfica
+    chromeOptions.addArguments('--headless');
     chromeOptions.addArguments('--no-sandbox');
     chromeOptions.addArguments('--disable-dev-shm-usage');
     chromeOptions.addArguments('--disable-gpu');
     chromeOptions.addArguments('--window-size=1920,1080');
 
-    // Inicializar el driver
     driver = await new Builder()
       .forBrowser('chrome')
       .setChromeOptions(chromeOptions)
       .build();
 
-    // Iniciar el servidor Express para las pruebas
-    server = app.listen(TEST_PORT, () => {
-      console.log(`Test server running on port ${TEST_PORT}`);
-    });
-
-    // Esperar un poco para que el servidor se inicie
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Espera a que la app esté arriba
+    let connected = false;
+    for (let i = 0; i < 10; i++) {
+      try {
+        await driver.get(BASE_URL);
+        connected = true;
+        break;
+      } catch {
+        await new Promise(res => setTimeout(res, 1000));
+      }
+    }
+    if (!connected) throw new Error('No se pudo conectar a la app');
   });
 
   afterAll(async () => {
     if (driver) {
       await driver.quit();
-    }
-    if (server) {
-      server.close();
     }
   });
 
