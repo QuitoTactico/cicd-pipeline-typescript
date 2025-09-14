@@ -45,7 +45,7 @@ app.post('/calculate', (req: Request, res: Response) => {
     }
 
     let result: number | undefined;
-    let responseSent = false;
+    const responseSent = false;
 
     switch (operation) {
       case 'add':
@@ -61,7 +61,8 @@ app.post('/calculate', (req: Request, res: Response) => {
         try {
           result = calculator.divide(number1, number2);
         } catch (error) {
-          responseSent = true;
+          // eslint-disable-next-line no-console
+          console.error(error);
           return res.json({
             success: false,
             result: 'Error: No se puede dividir por cero',
@@ -69,7 +70,6 @@ app.post('/calculate', (req: Request, res: Response) => {
         }
         break;
       default:
-        responseSent = true;
         return res.json({
           success: false,
           result: 'Operación no válida',
@@ -87,6 +87,8 @@ app.post('/calculate', (req: Request, res: Response) => {
       result: 'Error desconocido',
     });
   } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(error);
     return res.json({
       success: false,
       result: 'Error interno del servidor',
