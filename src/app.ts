@@ -4,9 +4,14 @@ import path from 'path';
 import { calculator } from './calculator';
 
 const app = express();
-
+app.disable('x-powered-by');
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: 'http://localhost:3000', // o el dominio de tu frontend en producción
+    methods: ['GET', 'POST'],
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
