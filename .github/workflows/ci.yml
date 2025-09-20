@@ -57,7 +57,7 @@ jobs:
           # Iniciar la aplicación en segundo plano
           npm start &
           # Esperar a que el servidor esté listo 
-          sleep 15
+          sleep 25
           # Ejecutar las pruebas de aceptación
           npm run test:acceptance
 
