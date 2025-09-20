@@ -28,6 +28,11 @@ app.get('/', (res: Response) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+// Ruta principal - servir el HTML
+app.get('/health', (res: Response) => {
+  res.status(200).send('OK');
+});
+
 // Ruta para procesar cálculos
 app.post('/calculate', (req: Request, res: Response) => {
   try {
