@@ -12,6 +12,15 @@ describe('Express App', () => {
     });
   });
 
+  describe('health check', () => {
+    it("expect return 200 ok", async () => {
+      const response = await request(app).get("/health");
+      
+      expect(response.status).toBe(200);
+      expect(response.text).toBe("OK");
+    })
+  });
+
   describe('POST /calculate', () => {
     it('should perform addition correctly', async () => {
       const response = await request(app)

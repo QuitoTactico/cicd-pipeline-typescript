@@ -29,7 +29,7 @@ app.get('/', (res: Response) => {
 });
 
 // Ruta principal - servir el HTML
-app.get('/health', (res: Response) => {
+app.get('/health', (_: Request, res: Response) => {
   res.status(200).send('OK');
 });
 
