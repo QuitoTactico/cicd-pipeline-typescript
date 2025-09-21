@@ -20,7 +20,7 @@ COPY . .
 RUN npm run build
 
 # Expón el puerto en el que la aplicación se ejecutará
-EXPOSE 3000
+EXPOSE 8000
 
 # Crea un usuario no-root para seguridad
 RUN addgroup -g 1001 -S nodejs
