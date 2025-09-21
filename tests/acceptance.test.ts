@@ -1,10 +1,9 @@
 import { Builder, By, WebDriver, until } from 'selenium-webdriver';
 import chrome from 'selenium-webdriver/chrome';
-// Quita: import app from '../src/app';
-// Quita: import { Server } from 'http';
+
 const { Select } = require('selenium-webdriver/lib/select');
 
-const BASE_URL = process.env.APP_BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.APP_BASE_URL || 'http://localhost:8000';
 jest.setTimeout(30000); // 30 segundos para todos los tests y hooks
 describe('Calculator Acceptance Tests', () => {
   let driver: WebDriver;
