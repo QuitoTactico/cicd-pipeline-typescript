@@ -241,7 +241,9 @@ jobs:
     needs: [update-service-staging, deploy-cfn-staging] # Depende de que el servicio esté estable con la nueva versión
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
+    strategy:
+      matrix:
+        node-version: [18.x]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
