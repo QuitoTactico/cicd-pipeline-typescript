@@ -130,8 +130,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Solo en push a main
     outputs:
       alb_url_staging: ${{ steps.get_stack_outputs.outputs.alb_url }}
-      cluster_name_staging: "calculadora-staging-cluster"
-      service_name_staging: "calculadora-staging-service"
+      cluster_name_staging: ${{ steps.get_stack_outputs.outputs.cluster_name }}
+      service_name_staging: ${{ steps.get_stack_outputs.outputs.service_name }}
 
     steps:
       # 1. Checkout del código (para acceder a template.yaml)
@@ -180,16 +180,37 @@ jobs:
 
           # Extraer la URL del ALB (ALBDnsName)
           ALB_URL=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ALBDnsName") | .OutputValue')
+          
+          # Extraer el nombre del cluster ECS
+          CLUSTER_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSClusterName") | .OutputValue')
+          
+          # Extraer el nombre del servicio ECS  
+          SERVICE_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSServiceName") | .OutputValue')
 
           if [ -z "$ALB_URL" ] || [ "$ALB_URL" == "null" ]; then
             echo "Error: No se pudo obtener ALBDnsName del stack de Staging."
+            exit 1
+          fi
+          
+          if [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" == "null" ]; then
+            echo "Error: No se pudo obtener ECSClusterName del stack de Staging."
+            exit 1
+          fi
+          
+          if [ -z "$SERVICE_NAME" ] || [ "$SERVICE_NAME" == "null" ]; then
+            echo "Error: No se pudo obtener ECSServiceName del stack de Staging."
             exit 1
           fi
 
           # Añadir http:// al inicio ya que el DNSName no lo incluye
           ALB_URL_HTTP="http://${ALB_URL}/"
           echo "ALB URL Staging: $ALB_URL_HTTP"
+          echo "Cluster Name Staging: $CLUSTER_NAME"
+          echo "Service Name Staging: $SERVICE_NAME"
+          
           echo "alb_url=${ALB_URL_HTTP}" >> $GITHUB_OUTPUT
+          echo "cluster_name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+          echo "service_name=${SERVICE_NAME}" >> $GITHUB_OUTPUT
 
   # -------------------------------------
   # Job de Actualización Servicio Staging (ECS - Forzar despliegue)
@@ -271,8 +292,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     outputs: # Definir salida para la URL del ALB de producción
       alb_url_prod: ${{ steps.get_stack_outputs.outputs.alb_url }}
-      cluster_name_prod: "calculadora-production-cluster"
-      service_name_prod: "calculadora-production-service"
+      cluster_name_prod: ${{ steps.get_stack_outputs.outputs.cluster_name }}
+      service_name_prod: ${{ steps.get_stack_outputs.outputs.service_name }}
 
     steps:
       # 1. Checkout del código
@@ -321,16 +342,37 @@ jobs:
 
           # Extraer la URL del ALB (ALBDnsName)
           ALB_URL=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ALBDnsName") | .OutputValue')
+          
+          # Extraer el nombre del cluster ECS
+          CLUSTER_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSClusterName") | .OutputValue')
+          
+          # Extraer el nombre del servicio ECS  
+          SERVICE_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSServiceName") | .OutputValue')
 
           if [ -z "$ALB_URL" ] || [ "$ALB_URL" == "null" ]; then
             echo "Error: No se pudo obtener ALBDnsName del stack de Producción."
+            exit 1
+          fi
+          
+          if [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" == "null" ]; then
+            echo "Error: No se pudo obtener ECSClusterName del stack de Producción."
+            exit 1
+          fi
+          
+          if [ -z "$SERVICE_NAME" ] || [ "$SERVICE_NAME" == "null" ]; then
+            echo "Error: No se pudo obtener ECSServiceName del stack de Producción."
             exit 1
           fi
 
           # Añadir http:// al inicio
           ALB_URL_HTTP="http://${ALB_URL}/"
           echo "ALB URL Production: $ALB_URL_HTTP"
+          echo "Cluster Name Production: $CLUSTER_NAME"
+          echo "Service Name Production: $SERVICE_NAME"
+          
           echo "alb_url=${ALB_URL_HTTP}" >> $GITHUB_OUTPUT
+          echo "cluster_name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+          echo "service_name=${SERVICE_NAME}" >> $GITHUB_OUTPUT
 
   # -------------------------------------
   # Job de Actualización Servicio Producción (ECS - Forzar despliegue)
