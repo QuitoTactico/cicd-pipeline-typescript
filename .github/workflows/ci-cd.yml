@@ -266,14 +266,12 @@ jobs:
       # 4. Ejecutar pruebas de aceptación contra el entorno de Staging
       - name: Run Acceptance Tests against Staging
         env:
-          APP_BASE_URL: ${{ needs.deploy-cfn-staging.outputs.alb_url_staging }} # URL del ALB de Staging desde salidas
+          APP_BASE_URL: ${{ needs.deploy-cfn-staging.outputs.alb_url_staging }}
         run: |
           echo "Running acceptance tests against: $APP_BASE_URL"
-          npm start &
-          # Esperar a que el servidor esté listo 
-          sleep 30
-          # Ejecutar las pruebas de aceptación
-          npm run test:acceptance 
+          # Ejecutar las pruebas de aceptación contra el entorno de Staging
+          sleep 60
+          npm run test:acceptance
 
   # -------------------------------------
   # Job de Despliegue CloudFormation Producción
