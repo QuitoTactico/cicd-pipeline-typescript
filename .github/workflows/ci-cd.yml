@@ -152,6 +152,24 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} # <--- USO DEL SESSION TOKEN
           aws-region: us-east-1
 
+      # 2.5. Eliminar stack fallido si está en ROLLBACK_COMPLETE
+      - name: Delete failed staging stack if needed
+        run: |
+          # Verificar el estado del stack
+          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name calculadora-staging-stack --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+          
+          echo "Staging stack status: $STACK_STATUS"
+          
+          if [ "$STACK_STATUS" == "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" == "CREATE_FAILED" ] || [ "$STACK_STATUS" == "ROLLBACK_FAILED" ]; then
+            echo "Stack is in failed state ($STACK_STATUS). Deleting..."
+            aws cloudformation delete-stack --stack-name calculadora-staging-stack
+            echo "Waiting for stack deletion to complete..."
+            aws cloudformation wait stack-delete-complete --stack-name calculadora-staging-stack
+            echo "Staging stack deleted successfully."
+          else
+            echo "Staging stack is in acceptable state: $STACK_STATUS"
+          fi
+
       # 3. Desplegar/Actualizar el stack CloudFormation de Staging
       - name: Deploy CloudFormation Staging Stack
         run: |
@@ -313,6 +331,24 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} # <--- USO DEL SESSION TOKEN
           aws-region: us-east-1
+
+      # 2.5. Eliminar stack fallido si está en ROLLBACK_COMPLETE  
+      - name: Delete failed production stack if needed
+        run: |
+          # Verificar el estado del stack
+          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name calculadora-prod-stack --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+          
+          echo "Production stack status: $STACK_STATUS"
+          
+          if [ "$STACK_STATUS" == "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" == "CREATE_FAILED" ] || [ "$STACK_STATUS" == "ROLLBACK_FAILED" ]; then
+            echo "Stack is in failed state ($STACK_STATUS). Deleting..."
+            aws cloudformation delete-stack --stack-name calculadora-prod-stack
+            echo "Waiting for stack deletion to complete..."
+            aws cloudformation wait stack-delete-complete --stack-name calculadora-prod-stack
+            echo "Production stack deleted successfully."
+          else
+            echo "Production stack is in acceptable state: $STACK_STATUS"
+          fi
 
       # 3. Desplegar/Actualizar el stack CloudFormation de Producción
       - name: Deploy CloudFormation Production Stack
