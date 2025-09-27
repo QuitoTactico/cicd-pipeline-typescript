@@ -303,7 +303,7 @@ jobs:
         run: |
           echo "Running acceptance tests against: $APP_BASE_URL"
           # Ejecutar las pruebas de aceptación contra el entorno de Staging
-          sleep 60
+          sleep 90
           npm run test:acceptance
 
   # -------------------------------------
