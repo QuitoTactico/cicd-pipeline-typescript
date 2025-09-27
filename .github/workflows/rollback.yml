@@ -41,12 +41,14 @@ jobs:
           
           # Registrar nueva task definition
           echo "📝 Registering new task definition with rollback image..."
-          aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF"
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "New task definition ARN: $NEW_TASK_DEF_ARN"
           
-          # Forzar despliegue del servicio
-          echo "🚀 Forcing new deployment..."
+          # AQUÍ ESTÁ LA CORRECCIÓN: Actualizar el servicio para usar la nueva task definition
+          echo "🚀 Updating service to use new task definition..."
           aws ecs update-service --cluster $CLUSTER_NAME \
                                 --service $SERVICE_NAME \
+                                --task-definition $NEW_TASK_DEF_ARN \
                                 --force-new-deployment
           
           # Esperar estabilidad
@@ -58,6 +60,16 @@ jobs:
           echo "Rollback completed successfully!"
           echo "Service should now be running the previous version."
           
-          # Opcional: verificar que el servicio esté corriendo
-          SERVICE_STATUS=$(aws ecs describe-services --cluster calculadora-production-cluster --services calculadora-production-service --query 'services[0].status' --output text)
+          # Obtener nombres dinámicos nuevamente
+          STACK_OUTPUTS=$(aws cloudformation describe-stacks --stack-name calculadora-prod-stack --query "Stacks[0].Outputs" --region us-east-1 --output json)
+          CLUSTER_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSClusterName") | .OutputValue')
+          SERVICE_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSServiceName") | .OutputValue')
+          
+          # Verificar que el servicio esté corriendo
+          SERVICE_STATUS=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].status' --output text)
           echo "Service status: $SERVICE_STATUS"
+          
+          # Mostrar cuántas tareas están corriendo
+          RUNNING_COUNT=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].runningCount' --output text)
+          DESIRED_COUNT=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].desiredCount' --output text)
+          echo "Tasks running: $RUNNING_COUNT/$DESIRED_COUNT"
