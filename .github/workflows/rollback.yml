@@ -20,10 +20,6 @@ jobs:
         run: |
           echo "🔄 Starting rollback process..."
           
-          # Obtener la imagen de rollback
-          ROLLBACK_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback"
-          echo "Using rollback image: $ROLLBACK_IMAGE"
-          
           # Obtener nombres dinámicos del stack de CloudFormation
           STACK_OUTPUTS=$(aws cloudformation describe-stacks --stack-name calculadora-prod-stack --query "Stacks[0].Outputs" --region us-east-1 --output json)
           
@@ -33,22 +29,34 @@ jobs:
           echo "Cluster: $CLUSTER_NAME"
           echo "Service: $SERVICE_NAME"
           
-          # Obtener la task definition actual de producción
-          TASK_DEF=$(aws ecs describe-task-definition --task-definition calculadora-production-task --query 'taskDefinition' --output json)
+          # Obtener la imagen de rollback
+          ROLLBACK_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback"
+          echo "Using rollback image: $ROLLBACK_IMAGE"
           
-          # Modificar la imagen en el task definition
-          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ROLLBACK_IMAGE" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)')
+          # Buscar si ya existe una task definition con la imagen rollback
+          EXISTING_ROLLBACK_TASK=$(aws ecs list-task-definitions --family-prefix calculadora-production-task --sort DESC --max-items 10 --query "taskDefinitionArns[]" --output text | while read task_def_arn; do
+            IMAGE=$(aws ecs describe-task-definition --task-definition "$task_def_arn" --query 'taskDefinition.containerDefinitions[0].image' --output text)
+            if [[ "$IMAGE" == "$ROLLBACK_IMAGE" ]]; then
+              echo "$task_def_arn"
+              break
+            fi
+          done)
           
-          # Registrar nueva task definition
-          echo "📝 Registering new task definition with rollback image..."
-          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
-          echo "New task definition ARN: $NEW_TASK_DEF_ARN"
+          if [ -n "$EXISTING_ROLLBACK_TASK" ] && [ "$EXISTING_ROLLBACK_TASK" != "" ]; then
+            echo "📋 Found existing rollback task definition: $EXISTING_ROLLBACK_TASK"
+            ROLLBACK_TASK_DEF="$EXISTING_ROLLBACK_TASK"
+          else
+            echo "📝 Creating new rollback task definition..."
+            # Solo crear nueva si no existe una con rollback
+            TASK_DEF=$(aws ecs describe-task-definition --task-definition calculadora-production-task --query 'taskDefinition' --output json)
+            NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ROLLBACK_IMAGE" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)')
+            ROLLBACK_TASK_DEF=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          fi
           
-          # AQUÍ ESTÁ LA CORRECCIÓN: Actualizar el servicio para usar la nueva task definition
-          echo "🚀 Updating service to use new task definition..."
+          echo "🚀 Updating service to use rollback task definition: $ROLLBACK_TASK_DEF"
           aws ecs update-service --cluster $CLUSTER_NAME \
                                 --service $SERVICE_NAME \
-                                --task-definition $NEW_TASK_DEF_ARN \
+                                --task-definition $ROLLBACK_TASK_DEF \
                                 --force-new-deployment
           
           # Esperar estabilidad
