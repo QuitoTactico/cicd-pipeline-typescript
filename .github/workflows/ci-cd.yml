@@ -87,6 +87,20 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Tag previous latest as rollback (before pushing new latest)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          # Pull la imagen latest actual
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest || true
+          
+          # Si existe, re-etiquetarla como rollback
+          if docker image inspect ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest &> /dev/null; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest \
+                       ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback
+            echo "Previous latest tagged as rollback"
+          fi
+
       - name: Build and push Docker image
         id: docker_build_push # Darle ID para referenciar output
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -394,3 +408,44 @@ jobs:
           echo "Waiting for Production service deployment to stabilize..."
           aws ecs wait services-stable --cluster ${{ needs.deploy-cfn-prod.outputs.cluster_name_prod }} --services ${{ needs.deploy-cfn-prod.outputs.service_name_prod }} --region us-east-1
           echo "Production service deployment stable."
+
+  # -------------------------------------
+  # Job de rollback (se ejecuta manualmente)
+  rollback-production:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'  # Solo manual
+    
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Rollback to previous version
+        run: |
+          # Obtener la imagen de rollback
+          ROLLBACK_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback"
+          
+          # Actualizar task definition de producción con la imagen de rollback
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition calculadora-production-task --query 'taskDefinition' --output json)
+          
+          # Modificar la imagen en el task definition
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ROLLBACK_IMAGE" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)')
+          
+          # Registrar nueva task definition
+          aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF"
+          
+          # Forzar despliegue del servicio
+          aws ecs update-service --cluster calculadora-production-cluster \
+                                --service calculadora-production-service \
+                                --force-new-deployment
+          
+          # Esperar estabilidad
+          aws ecs wait services-stable --cluster calculadora-production-cluster --services calculadora-production-service
+
+      - name: Verify rollback
+        run: |
+          echo "Rollback completed. Service should now be running the previous version."
