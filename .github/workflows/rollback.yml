@@ -33,17 +33,22 @@ jobs:
           ROLLBACK_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback"
           echo "Using rollback image: $ROLLBACK_IMAGE"
           
-          # Buscar si ya existe una task definition con la imagen rollback
-          EXISTING_ROLLBACK_TASK=$(aws ecs list-task-definitions --family-prefix calculadora-production-task --sort DESC --max-items 10 --query "taskDefinitionArns[]" --output text | while read task_def_arn; do
+          # CORREGIR: Buscar task definition existente con rollback image
+          TASK_DEFS=$(aws ecs list-task-definitions --family-prefix calculadora-production-task --sort DESC --max-items 10 --query "taskDefinitionArns[]" --output text)
+          
+          EXISTING_ROLLBACK_TASK=""
+          for task_def_arn in $TASK_DEFS; do
             IMAGE=$(aws ecs describe-task-definition --task-definition "$task_def_arn" --query 'taskDefinition.containerDefinitions[0].image' --output text)
+            echo "Checking task definition: $task_def_arn with image: $IMAGE"
             if [[ "$IMAGE" == "$ROLLBACK_IMAGE" ]]; then
-              echo "$task_def_arn"
+              EXISTING_ROLLBACK_TASK="$task_def_arn"
+              echo "✅ Found existing rollback task definition: $EXISTING_ROLLBACK_TASK"
               break
             fi
-          done)
+          done
           
-          if [ -n "$EXISTING_ROLLBACK_TASK" ] && [ "$EXISTING_ROLLBACK_TASK" != "" ]; then
-            echo "📋 Found existing rollback task definition: $EXISTING_ROLLBACK_TASK"
+          if [ -n "$EXISTING_ROLLBACK_TASK" ]; then
+            echo "📋 Reusing existing rollback task definition: $EXISTING_ROLLBACK_TASK"
             ROLLBACK_TASK_DEF="$EXISTING_ROLLBACK_TASK"
           else
             echo "📝 Creating new rollback task definition..."
