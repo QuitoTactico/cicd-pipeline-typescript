@@ -18,7 +18,7 @@ jobs:
       image_tag: ${{ steps.set_outputs.outputs.image_tag }}
     strategy:
       matrix:
-        node-version: [18.x]
+        node-version: [20.x]
 
     steps:
       - name: Checkout code
@@ -258,7 +258,7 @@ jobs:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event.inputs.action != 'rollback' || github.event.inputs.action == null)
     strategy:
       matrix:
-        node-version: [18.x]
+        node-version: [20.x]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
