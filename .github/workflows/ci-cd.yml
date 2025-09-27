@@ -7,12 +7,10 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    if: github.event.inputs.action != 'rollback' || github.event.inputs.action == null
     outputs:
       repo_name: ${{ steps.set_outputs.outputs.repo_name }}
       image_tag: ${{ steps.set_outputs.outputs.image_tag }}
@@ -70,6 +68,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
+
       # --- Pasos de Docker (solo en push a main) ---
 
       - name: Set up QEMU
@@ -87,18 +86,20 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Tag previous latest as rollback (before pushing new latest)
+      - name: Tag previous latest as rollback
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          # Pull la imagen latest actual
+          # Intentar pull de la imagen latest actual
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest || true
           
           # Si existe, re-etiquetarla como rollback
-          if docker image inspect ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest &> /dev/null; then
+          if docker image inspect ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest >/dev/null 2>&1; then
             docker tag ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest \
                        ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback
             docker push ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback
-            echo "Previous latest tagged as rollback"
+            echo "✅ Previous latest tagged as rollback"
+          else
+            echo "ℹ️ No previous latest image found to tag as rollback"
           fi
 
       - name: Build and push Docker image
@@ -129,9 +130,9 @@ jobs:
   # Job de Despliegue CloudFormation Staging
   # -------------------------------------
   deploy-cfn-staging:
-    needs: build-and-test
+    needs: build-and-test # Depende del job anterior (necesita image_uri)
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event.inputs.action != 'rollback' || github.event.inputs.action == null)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Solo en push a main
     outputs:
       alb_url_staging: ${{ steps.get_stack_outputs.outputs.alb_url }}
       cluster_name_staging: ${{ steps.get_stack_outputs.outputs.cluster_name }}
@@ -223,7 +224,7 @@ jobs:
     # Depende de que CFN haya actualizado la Task Definition
     needs: [build-and-test, deploy-cfn-staging]
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event.inputs.action != 'rollback' || github.event.inputs.action == null)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       # 1. Configurar credenciales de AWS (CON SESSION TOKEN)
@@ -254,7 +255,7 @@ jobs:
   test-staging:
     needs: [update-service-staging, deploy-cfn-staging] # Depende de que el servicio esté estable con la nueva versión
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event.inputs.action != 'rollback' || github.event.inputs.action == null)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       matrix:
         node-version: [20.x]
@@ -293,7 +294,7 @@ jobs:
   deploy-cfn-prod:
     needs: [build-and-test, test-staging] # Depende de la imagen y de que Staging esté OK
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event.inputs.action != 'rollback' || github.event.inputs.action == null)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     outputs: # Definir salida para la URL del ALB de producción
       alb_url_prod: ${{ steps.get_stack_outputs.outputs.alb_url }}
       cluster_name_prod: ${{ steps.get_stack_outputs.outputs.cluster_name }}
@@ -384,7 +385,7 @@ jobs:
   update-service-prod:
     needs: [build-and-test, deploy-cfn-prod] # Depende de que CFN haya actualizado la Task Def de Prod
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event.inputs.action != 'rollback' || github.event.inputs.action == null)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       # 1. Configurar credenciales de AWS (CON SESSION TOKEN)
@@ -408,44 +409,3 @@ jobs:
           echo "Waiting for Production service deployment to stabilize..."
           aws ecs wait services-stable --cluster ${{ needs.deploy-cfn-prod.outputs.cluster_name_prod }} --services ${{ needs.deploy-cfn-prod.outputs.service_name_prod }} --region us-east-1
           echo "Production service deployment stable."
-
-  # -------------------------------------
-  # Job de rollback (se ejecuta manualmente)
-  rollback-production:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'  # Solo manual
-    
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: us-east-1
-
-      - name: Rollback to previous version
-        run: |
-          # Obtener la imagen de rollback
-          ROLLBACK_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback"
-          
-          # Actualizar task definition de producción con la imagen de rollback
-          TASK_DEF=$(aws ecs describe-task-definition --task-definition calculadora-production-task --query 'taskDefinition' --output json)
-          
-          # Modificar la imagen en el task definition
-          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ROLLBACK_IMAGE" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)')
-          
-          # Registrar nueva task definition
-          aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF"
-          
-          # Forzar despliegue del servicio
-          aws ecs update-service --cluster calculadora-production-cluster \
-                                --service calculadora-production-service \
-                                --force-new-deployment
-          
-          # Esperar estabilidad
-          aws ecs wait services-stable --cluster calculadora-production-cluster --services calculadora-production-service
-
-      - name: Verify rollback
-        run: |
-          echo "Rollback completed. Service should now be running the previous version."

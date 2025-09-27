@@ -1,0 +1,63 @@
+name: Rollback Production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rollback-production:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Rollback to previous version
+        run: |
+          echo "🔄 Starting rollback process..."
+          
+          # Obtener la imagen de rollback
+          ROLLBACK_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:rollback"
+          echo "Using rollback image: $ROLLBACK_IMAGE"
+          
+          # Obtener nombres dinámicos del stack de CloudFormation
+          STACK_OUTPUTS=$(aws cloudformation describe-stacks --stack-name calculadora-prod-stack --query "Stacks[0].Outputs" --region us-east-1 --output json)
+          
+          CLUSTER_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSClusterName") | .OutputValue')
+          SERVICE_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ECSServiceName") | .OutputValue')
+          
+          echo "Cluster: $CLUSTER_NAME"
+          echo "Service: $SERVICE_NAME"
+          
+          # Obtener la task definition actual de producción
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition calculadora-production-task --query 'taskDefinition' --output json)
+          
+          # Modificar la imagen en el task definition
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ROLLBACK_IMAGE" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)')
+          
+          # Registrar nueva task definition
+          echo "📝 Registering new task definition with rollback image..."
+          aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF"
+          
+          # Forzar despliegue del servicio
+          echo "🚀 Forcing new deployment..."
+          aws ecs update-service --cluster $CLUSTER_NAME \
+                                --service $SERVICE_NAME \
+                                --force-new-deployment
+          
+          # Esperar estabilidad
+          echo "⏳ Waiting for service to stabilize..."
+          aws ecs wait services-stable --cluster $CLUSTER_NAME --services $SERVICE_NAME
+
+      - name: Verify rollback
+        run: |
+          echo "Rollback completed successfully!"
+          echo "Service should now be running the previous version."
+          
+          # Opcional: verificar que el servicio esté corriendo
+          SERVICE_STATUS=$(aws ecs describe-services --cluster calculadora-production-cluster --services calculadora-production-service --query 'services[0].status' --output text)
+          echo "Service status: $SERVICE_STATUS"
